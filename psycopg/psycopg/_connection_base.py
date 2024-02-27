@@ -511,11 +511,13 @@ class BaseConnection(Generic[Row]):
     def _commit_gen(self) -> PQGen[None]:
         """Generator implementing `Connection.commit()`."""
         if self._transaction_stack:
-            raise e.ProgrammingError(
-                "Explicit commit() forbidden within a Transaction "
-                "context. (Transaction will be automatically committed "
-                "on successful exit from context.)"
-            )
+            # See issue #741: allow commit when force rollback is enabled.
+            if not self._transaction_stack[-1].force_rollback:
+                raise e.ProgrammingError(
+                    "Explicit commit() forbidden within a Transaction "
+                    "context. (Transaction will be automatically committed "
+                    "on successful exit from context.)"
+                )
         if self._tpc:
             raise e.ProgrammingError(
                 "commit() cannot be used during a two-phase transaction"

@@ -107,7 +107,7 @@ class BaseConnection(Generic[Row]):
         self._notify_handlers: List[NotifyHandler] = []
 
         # Number of transaction blocks currently entered
-        self._num_transactions = 0
+        self._transaction_stack = []
 
         self._closed = False  # closed by an explicit close()
         self._prepared: PrepareManager = PrepareManager()
@@ -250,7 +250,7 @@ class BaseConnection(Generic[Row]):
             yield from self._pipeline._sync_gen()
             status = self.pgconn.transaction_status
         if status != IDLE:
-            if self._num_transactions:
+            if self._transaction_stack:
                 raise e.ProgrammingError(
                     f"can't change {attribute!r} now: "
                     "connection.transaction() context in progress"
@@ -510,7 +510,7 @@ class BaseConnection(Generic[Row]):
 
     def _commit_gen(self) -> PQGen[None]:
         """Generator implementing `Connection.commit()`."""
-        if self._num_transactions:
+        if self._transaction_stack:
             raise e.ProgrammingError(
                 "Explicit commit() forbidden within a Transaction "
                 "context. (Transaction will be automatically committed "
@@ -530,7 +530,7 @@ class BaseConnection(Generic[Row]):
 
     def _rollback_gen(self) -> PQGen[None]:
         """Generator implementing `Connection.rollback()`."""
-        if self._num_transactions:
+        if self._transaction_stack:
             raise e.ProgrammingError(
                 "Explicit rollback() forbidden within a Transaction "
                 "context. (Either raise Rollback() or allow "

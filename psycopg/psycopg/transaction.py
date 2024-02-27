@@ -171,7 +171,7 @@ class BaseTransaction(Generic[ConnectionType]):
             )
 
         if self._outer_transaction:
-            assert not self._conn._num_transactions
+            assert not self._conn._transaction_stack
             yield b"COMMIT"
 
     def _get_rollback_commands(self) -> Iterator[bytes]:
@@ -188,7 +188,7 @@ class BaseTransaction(Generic[ConnectionType]):
             )
 
         if self._outer_transaction:
-            assert not self._conn._num_transactions
+            assert not self._conn._transaction_stack
             yield b"ROLLBACK"
 
         # Also clear the prepared statements cache.
@@ -201,18 +201,19 @@ class BaseTransaction(Generic[ConnectionType]):
 
         Also set the internal state of the object and verify consistency.
         """
+        num_transactions = len(self._conn._transaction_stack)
         self._outer_transaction = self.pgconn.transaction_status == IDLE
         if self._outer_transaction:
             # outer transaction: if no name it's only a begin, else
             # there will be an additional savepoint
-            assert not self._conn._num_transactions
+            assert not self._conn._transaction_stack
         else:
             # inner transaction: it always has a name
             if not self._savepoint_name:
-                self._savepoint_name = f"_pg3_{self._conn._num_transactions + 1}"
+                self._savepoint_name = f"_pg3_{num_transactions + 1}"
 
-        self._stack_index = self._conn._num_transactions
-        self._conn._num_transactions += 1
+        self._stack_index = num_transactions
+        self._conn._transaction_stack.append(self)
 
     def _pop_savepoint(self, action: str) -> Optional[Exception]:
         """
@@ -220,8 +221,8 @@ class BaseTransaction(Generic[ConnectionType]):
 
         Also verify the state consistency.
         """
-        self._conn._num_transactions -= 1
-        if self._conn._num_transactions == self._stack_index:
+        self._conn._transaction_stack.pop()
+        if len(self._conn._transaction_stack) == self._stack_index:
             return None
 
         return OutOfOrderTransactionNesting(
